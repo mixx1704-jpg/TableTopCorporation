@@ -18,6 +18,9 @@ Aplicação estática para criar e administrar fichas de jogador do sistema Tabl
 2. Em **Settings → Pages → Build and deployment**, escolha **GitHub Actions**.
 3. Faça um push na branch `main`. O workflow incluído monta e publica o site automaticamente.
 
+O caminho do repositório é detectado automaticamente. Para este projeto, os arquivos
+serão publicados sob `/TableTopCorporation`.
+
 ## Desenvolvimento local
 
 ```bash
@@ -30,3 +33,9 @@ Para testar a exportação estática:
 ```bash
 npm run build:pages
 ```
+
+## Observação para Windows PowerShell
+
+O `tsconfig.json` deve ser UTF-8 **sem BOM**. O workflow incluído normaliza esse arquivo
+antes do build, mas, ao editá-lo manualmente no Windows PowerShell 5, evite
+`Set-Content -Encoding utf8`, pois essa versão adiciona BOM ao começo do JSON.

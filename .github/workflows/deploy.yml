@@ -1,4 +1,5 @@
-﻿name: Deploy GitHub Pages
+name: Deploy GitHub Pages
+
 on:
   push:
     branches: ["main"]
@@ -10,23 +11,40 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: 1
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22.13.0"
-          cache: "npm"
+          cache: npm
+
+      - name: Normalize tsconfig encoding
+        run: |
+          node -e "const fs=require('fs'); const p='tsconfig.json'; const s=fs.readFileSync(p,'utf8'); fs.writeFileSync(p,s.replace(/^\uFEFF/,''),'utf8'); JSON.parse(fs.readFileSync(p,'utf8'));"
+
+      - name: Configure repository path
+        run: |
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          if [ "$REPO_NAME" = "${GITHUB_REPOSITORY_OWNER}.github.io" ]; then
+            echo "PAGES_BASE_PATH=" >> "$GITHUB_ENV"
+          else
+            echo "PAGES_BASE_PATH=/$REPO_NAME" >> "$GITHUB_ENV"
+          fi
+
       - run: npm ci
       - run: npm run build:pages
-        env:
-          PAGES_BASE_PATH: /TableTopCorporation
+
       - uses: actions/configure-pages@v5
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./out
