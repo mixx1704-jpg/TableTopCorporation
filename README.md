@@ -15,7 +15,6 @@ Aplicação estática para criar e administrar fichas de jogador do sistema Tabl
 - inventário e armadura V2 com qualidade, procedência, preço, Durabilidade, módulos e perfis por Grau;
 - progressão de Fixer, fontes rápidas de XP, projetos de Treino, Provas, Shin, Mang e Sobrecarga de Luz;
 - Mente e E.G.O. com Âncoras, Feridas, Teste de Ruptura, Corrosão e Distorção;
-- construtor de Anormalidades e encontros com orçamento automático, Qliphoth, Trabalhos e Relógios;
 - resumo imprimível para PDF.
 
 ## Publicar no GitHub Pages

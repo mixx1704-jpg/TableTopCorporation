@@ -8,7 +8,6 @@ import {
   BriefcaseBusiness,
   Check,
   ChevronDown,
-  CircleDot,
   Cpu,
   Database,
   Dices,
@@ -63,7 +62,6 @@ import {
   CombatWorkspace,
   DEFAULT_V2_DATA,
   EquipmentReference,
-  MasterWorkspace,
   mergeV2Data,
   MindWorkspace,
   momentumModifier,
@@ -872,14 +870,12 @@ export default function Home() {
     ["implantes", "08", "Implantes", Cpu],
     ["progressao", "09", "Progressão", Zap],
     ["mente", "10", "Mente & E.G.O.", Brain],
-    ["mestre", "11", "Mestre", AlertTriangle],
-    ["resumo", "12", "Resumo", FileText],
+    ["resumo", "11", "Resumo", FileText],
   ] as const;
 
   return (
-    <main className="app-shell" style={{ "--tc-city-art": `url(${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/art/city-bus.webp)`, "--tc-bough-art": `url(${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/art/golden-bough.webp)` } as React.CSSProperties}>
+    <main className="app-shell" style={{ "--tc-bough-art": `url(${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/art/golden-bough.webp)` } as React.CSSProperties}>
       <Toaster position="bottom-right" richColors />
-      <div className="signal-rail" aria-hidden="true"><span>TABLETOP CORP.</span><i /><span>ARQUIVO DE PESSOAL</span></div>
 
       <header className="topbar">
         <div className="brand-lockup">
@@ -910,8 +906,6 @@ export default function Home() {
         <StatCard tone="life" label="Vida" value={`${sheet.resources.life}/${maxLife}`} detail="20 + Nível + Vigor × 4" icon={<Heart />} />
         <StatCard tone="sanity" label="Sanidade" value={`${sheet.resources.sanity}/${maxSanity}`} detail={sanityState} icon={<Brain />} />
         <StatCard tone="posture" label="Postura" value={`${sheet.resources.posture}/${maxPosture}`} detail="Vida Máxima × 2" icon={<Shield />} />
-        <StatCard tone={pdBalance < 0 ? "danger" : "pd"} label="Saldo PD" value={pdBalance} detail={`${gainedPD} obtidos · ${spentPD} gastos`} icon={<CircleDot />} />
-        <StatCard tone={attributeSpent > attributeBudget ? "danger" : "points"} label="Atributos" value={`${attributeSpent}/${attributeBudget}`} detail={`${totalImplantBonus >= 0 ? "+" : ""}${totalImplantBonus} por implantes · limite natural ${attributeCap}`} icon={<Gauge />} />
       </section>
 
       {warnings.length > 0 && (
@@ -923,7 +917,7 @@ export default function Home() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="workspace-tabs">
         <TabsList variant="line" className="workspace-nav">
-          {tabItems.map(([value, index, label, Icon]) => <TabsTrigger key={value} value={value} className="nav-tab"><span>{index}</span><Icon />{label}</TabsTrigger>)}
+          {tabItems.map(([value, , label, Icon]) => <TabsTrigger key={value} value={value} className="nav-tab"><Icon />{label}</TabsTrigger>)}
         </TabsList>
 
         <TabsContent value="identidade" className="workspace-panel">
@@ -1102,13 +1096,8 @@ export default function Home() {
           <MindWorkspace data={sheet.v2} onChange={updateV2} sanity={sheet.resources.sanity} maxSanity={maxSanity} ego={totalAttributes.Ego} willpower={totalAttributes.Vontade} dissonance={sheet.resources.dissonance} />
         </TabsContent>
 
-        <TabsContent value="mestre" className="workspace-panel">
-          <SectionHeading eyebrow="11 / CONTENÇÃO" title="Anormalidades e Ferramentas do Mestre" description="Construtor completo do Manual V2 com orçamento por risco, Qliphoth, Trabalhos, recompensas E.G.O., encontros e Relógios." />
-          <MasterWorkspace data={sheet.v2} onChange={updateV2} />
-        </TabsContent>
-
         <TabsContent value="resumo" className="workspace-panel print-sheet">
-          <SectionHeading eyebrow="12 / ARQUIVO FINAL" title={sheet.identity.name || "Personagem sem nome"} description={`${sheet.identity.office} · ${sheet.identity.origin} · Nível ${sheet.level}`} />
+          <SectionHeading eyebrow="11 / ARQUIVO FINAL" title={sheet.identity.name || "Personagem sem nome"} description={`${sheet.identity.office} · ${sheet.identity.origin} · Nível ${sheet.level}`} />
           <div className="summary-actions"><Button onClick={() => window.print()}><Printer /> Imprimir / salvar PDF</Button><Button variant="outline" onClick={exportSheet}><Download /> Exportar JSON</Button></div>
           <section className="summary-hero"><div><span>CONCEITO</span><p>{sheet.identity.concept || "Não registrado."}</p></div><div className="summary-vitals"><StatCard label="Vida" value={`${sheet.resources.life}/${maxLife}`} /><StatCard label="Sanidade" value={`${sheet.resources.sanity}/${maxSanity}`} detail={sanityState} /><StatCard label="Postura" value={`${sheet.resources.posture}/${maxPosture}`} /><StatCard label="Grau" value={sheet.progression.fixerGrade} detail={`${sheet.progression.reputation} reputação`} /></div></section>
           <section className="summary-section"><h3>ATRIBUTOS</h3><div className="summary-attributes">{ATTRIBUTES.map((attribute) => <div key={attribute}><span>{attribute}</span><strong>{totalAttributes[attribute]}</strong><small>{sheet.attributes[attribute]} natural{implantAttributeBonuses[attribute] !== 0 ? ` · ${implantAttributeBonuses[attribute] > 0 ? "+" : ""}${implantAttributeBonuses[attribute]} implante` : ""}</small></div>)}</div></section>
