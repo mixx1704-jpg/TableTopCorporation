@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Tabletop Corp. — Ficha de Jogador",
-  description: "Criador automático de fichas para Tabletop Corp., com perks, talentos, habilidades por Moeda e salvamento local.",
+  description: "Ficha V2 completa para Tabletop Corp., com criação de personagem, combate, implantes, E.G.O., Anormalidades e salvamento local.",
   icons: {
     icon: `${process.env.PAGES_BASE_PATH || ""}/favicon.svg`,
     shortcut: `${process.env.PAGES_BASE_PATH || ""}/favicon.svg`,

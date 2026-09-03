@@ -9,6 +9,7 @@ import {
   Check,
   ChevronDown,
   CircleDot,
+  Cpu,
   Database,
   Dices,
   Download,
@@ -55,10 +56,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ATTRIBUTE_TALENTS, CREATION_PERKS } from "./system-data";
+import {
+  CombatWorkspace,
+  DEFAULT_V2_DATA,
+  EquipmentReference,
+  MasterWorkspace,
+  mergeV2Data,
+  MindWorkspace,
+  momentumModifier,
+  OriginDossier,
+  ProgressionV2,
+  type V2Data,
+} from "./v2-workspaces";
 
 const STORAGE_KEY = "tabletop-corp-ficha-v1";
+const SYSTEM_PERKS = CREATION_PERKS.map((perk) => perk.id === "vantagem-58" ? { ...perk, name: "Familiaridade com Singularidade", rule: "Escolha a Singularidade da Wing. Receba +1d8 para reconhecê-la, operá-la com autorização ou conter efeitos conhecidos." } : perk);
 
 const ATTRIBUTES = [
   "Força",
@@ -174,6 +189,15 @@ type Item = {
   durability: number;
   durabilityMax: number;
   details: string;
+  quality: string;
+  origin: string;
+  price: number;
+  damage: string;
+  weight: number;
+  coins: number;
+  damageType: string;
+  modules: string;
+  specialRule: string;
 };
 
 type CustomPerk = {
@@ -195,10 +219,36 @@ type Armor = {
   durability: number;
   durabilityMax: number;
   notes: string;
+  load: number;
+  origin: string;
+  price: number;
+  modules: string;
+  specialRule: string;
+  requirement: string;
+};
+
+type Implant = {
+  id: string;
+  name: string;
+  manufacturer: string;
+  bodyLocation: string;
+  implantClass: string;
+  size: string;
+  capacity: number;
+  stress: number;
+  benefit: string;
+  bonuses: AttributeMap;
+  exceedsLimit: boolean;
+  unlocksShin: boolean;
+  newAction: string;
+  costRecharge: string;
+  complication: string;
+  maintenance: string;
+  installed: boolean;
 };
 
 type Sheet = {
-  version: 1;
+  version: 2;
   identity: {
     name: string;
     player: string;
@@ -232,6 +282,7 @@ type Sheet = {
   selectedTalents: string[];
   skills: Skill[];
   items: Item[];
+  implants: Implant[];
   armor: Armor;
   progression: {
     trainingMarks: number;
@@ -242,6 +293,7 @@ type Sheet = {
     trainingNotes: string;
   };
   notes: string;
+  v2: V2Data;
 };
 
 const emptyAttributes = (): AttributeMap => Object.fromEntries(ATTRIBUTES.map((name) => [name, 0])) as AttributeMap;
@@ -254,7 +306,7 @@ const DEMO_COINS: Coin[] = [
 ];
 
 const DEFAULT_SHEET: Sheet = {
-  version: 1,
+  version: 2,
   identity: {
     name: "Novo Funcionário",
     player: "",
@@ -292,10 +344,62 @@ const DEFAULT_SHEET: Sheet = {
     },
   ],
   items: [],
-  armor: { name: "Sem armadura", armorClass: "Comum", red: 1, white: 1, black: 1, pale: 1, block: 0, durability: 0, durabilityMax: 0, notes: "" },
+  implants: [],
+  armor: { name: "Sem armadura", armorClass: "Comum", red: 1, white: 1, black: 1, pale: 1, block: 0, durability: 0, durabilityMax: 0, notes: "", load: 0, origin: "", price: 0, modules: "", specialRule: "", requirement: "" },
   progression: { trainingMarks: 0, reputation: 0, contracts: 0, fixerGrade: "9", shinAwakened: false, trainingNotes: "" },
   notes: "",
+  v2: structuredClone(DEFAULT_V2_DATA),
 };
+
+const IMPLANT_SIZES = ["Micro", "Leve", "Médio", "Pesado", "Integral"];
+const IMPLANT_SIZE_CAPACITY: Record<string, number> = { Micro: 0, Leve: 1, Médio: 2, Pesado: 3, Integral: 4 };
+
+function implantProfile(patch: Partial<Omit<Implant, "id">>): Omit<Implant, "id"> {
+  return {
+    name: "Novo implante",
+    manufacturer: "",
+    bodyLocation: "",
+    implantClass: "Comum",
+    size: "Leve",
+    capacity: 1,
+    stress: 0,
+    benefit: "",
+    bonuses: emptyAttributes(),
+    exceedsLimit: false,
+    unlocksShin: false,
+    newAction: "",
+    costRecharge: "",
+    complication: "",
+    maintenance: "",
+    installed: true,
+    ...patch,
+  };
+}
+
+const READY_IMPLANTS: Omit<Implant, "id">[] = [
+  implantProfile({ name: "Olho Oráculo M-4", manufacturer: "M-Corp.", bodyLocation: "Olho", size: "Leve", capacity: 1, benefit: "+1d8 para mira, leitura térmica ou ampliação; escolha uma função por cena.", complication: "Luzes fortes causam -1d8 em Percepção até recalibrar." }),
+  implantProfile({ name: "Mão de Oficina 'Fio Fino'", bodyLocation: "Mão", size: "Leve", capacity: 1, benefit: "Ferramenta integrada de Carga 0.", bonuses: { ...emptyAttributes(), Prestidigitação: 1 }, complication: "Falha crítica trava os dedos até reparo." }),
+  implantProfile({ name: "Pulmão de Cinza", bodyLocation: "Pulmões", size: "Leve", capacity: 1, benefit: "+2d8 contra gás, fumaça e falta de ar.", complication: "Trocar o filtro após três cenas contaminadas." }),
+  implantProfile({ name: "Pernas Vetoriais", bodyLocation: "Pernas", size: "Médio", capacity: 2, benefit: "Salto horizontal dobrado.", bonuses: { ...emptyAttributes(), Agilidade: 1 }, complication: "Gastar dois Movimentos na rodada marca 1 Estresse." }),
+  implantProfile({ name: "Malha Subdérmica", bodyLocation: "Pele e tecido subcutâneo", size: "Médio", capacity: 2, benefit: "Melhore Vermelho em 0,1 e ganhe Durabilidade 5 própria.", complication: "Dano Pálido ignora a melhoria e causa 1 Estresse." }),
+  implantProfile({ name: "Coluna de Reação", bodyLocation: "Coluna", size: "Médio", capacity: 2, benefit: "Uma Reação extra uma vez por cena.", bonuses: { ...emptyAttributes(), Ataque: 1 }, complication: "Após a Reação extra, perca 5 de Postura." }),
+  implantProfile({ name: "Coração Capacitor", bodyLocation: "Tórax", size: "Médio", capacity: 2, benefit: "Armazene até 10 Carga para habilidades e itens.", complication: "Em falha crítica elétrica, sofra dano Vermelho igual à Carga guardada." }),
+  implantProfile({ name: "Esqueleto de Superliga X", bodyLocation: "Esqueleto", size: "Pesado", capacity: 3, benefit: "Carga Máxima +2.", bonuses: { ...emptyAttributes(), Força: 2, Vigor: 1 }, complication: "Sem manutenção proprietária, ganhe 1 Estresse por sessão." }),
+];
+
+const implantWorks = (implant: Implant) => implant.installed && implant.stress < 10;
+const implantBonus = (implants: Implant[], attribute: AttributeName) => implants.filter(implantWorks).reduce((sum, implant) => sum + (implant.bonuses[attribute] ?? 0), 0);
+
+function syncResourcesForImplants(resources: Sheet["resources"], before: Implant[], after: Implant[]) {
+  const vigorDelta = implantBonus(after, "Vigor") - implantBonus(before, "Vigor");
+  const sanityDelta = implantBonus(after, "Sanidade") - implantBonus(before, "Sanidade");
+  return {
+    ...resources,
+    life: Math.max(0, resources.life + vigorDelta * 4),
+    sanity: Math.max(0, resources.sanity + sanityDelta * 4),
+    posture: Math.max(0, resources.posture + vigorDelta * 8),
+  };
+}
 
 const deepCopyDefault = () => JSON.parse(JSON.stringify(DEFAULT_SHEET)) as Sheet;
 const uid = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -315,14 +419,15 @@ function mergeSheet(candidate: Partial<Sheet>): Sheet {
     selectedTalents: Array.isArray(candidate.selectedTalents) ? candidate.selectedTalents : [],
     customPerks: Array.isArray(candidate.customPerks) ? candidate.customPerks : [],
     skills: Array.isArray(candidate.skills) ? candidate.skills : base.skills,
-    items: Array.isArray(candidate.items) ? candidate.items : [],
-    version: 1,
+    items: Array.isArray(candidate.items) ? candidate.items.map((item) => Object.assign({ quality: "Comum", origin: "", price: 0, damage: "", weight: 0, coins: 0, damageType: "Vermelho", modules: "", specialRule: "" }, item)) : [],
+    implants: Array.isArray(candidate.implants) ? candidate.implants.map((implant) => ({
+      ...implant,
+      bonuses: { ...emptyAttributes(), ...(implant.bonuses ?? {}) },
+      installed: implant.installed !== false,
+    })) : [],
+    v2: mergeV2Data(candidate.v2),
+    version: 2,
   };
-}
-
-function mangMultiplier(spent: number) {
-  if (spent === 7) return 2;
-  return Math.floor(Math.pow(1.1, Math.max(0, spent)) * 10) / 10;
 }
 
 function rollExpression(expression: string): { total: number; detail: string } | null {
@@ -464,7 +569,7 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [sheet, hydrated]);
 
-  const selectedOfficialPerks = useMemo(() => CREATION_PERKS.filter((perk) => sheet.selectedPerks.includes(perk.id)), [sheet.selectedPerks]);
+  const selectedOfficialPerks = useMemo(() => SYSTEM_PERKS.filter((perk) => sheet.selectedPerks.includes(perk.id)), [sheet.selectedPerks]);
   const hasPerk = (id: string) => sheet.selectedPerks.includes(id);
   const rawDisadvantagePD = selectedOfficialPerks.filter((perk) => perk.kind === "desvantagem").reduce((sum, perk) => sum + perk.pd, 0) + sheet.customPerks.filter((perk) => perk.kind === "desvantagem").reduce((sum, perk) => sum + perk.pd, 0);
   const gainedPD = sheet.identity.background === "Antigo Fixer" ? Math.floor(rawDisadvantagePD * 1.2) : rawDisadvantagePD;
@@ -473,11 +578,23 @@ export default function Home() {
   const attributeBudget = Math.max(0, 10 + (sheet.level - 1) * 2 + (hasPerk("vantagem-1") ? sheet.level - 1 : 0) - (hasPerk("desvantagem-4") ? 1 : 0));
   const attributeSpent = ATTRIBUTES.reduce((sum, attribute) => sum + sheet.attributes[attribute], 0);
   const attributeCap = Math.min(20, sheet.level + 1);
-  const maxLife = Math.max(1, 20 + sheet.level + sheet.attributes.Vigor * 4 + (hasPerk("vantagem-2") ? 4 : 0) - (hasPerk("desvantagem-2") ? 4 : 0));
-  const maxSanity = Math.max(1, 15 + sheet.level + sheet.attributes.Sanidade * 4 + (hasPerk("vantagem-3") ? 4 : 0) - (hasPerk("desvantagem-3") ? 4 : 0));
+  const implantAttributeBonuses = Object.fromEntries(ATTRIBUTES.map((attribute) => [attribute, implantBonus(sheet.implants, attribute)])) as AttributeMap;
+  const totalAttributes = Object.fromEntries(ATTRIBUTES.map((attribute) => {
+    const rawTotal = sheet.attributes[attribute] + implantAttributeBonuses[attribute];
+    const canExceedTwenty = sheet.implants.some((implant) => implantWorks(implant) && implant.exceedsLimit && implant.bonuses[attribute] > 0);
+    return [attribute, Math.max(0, canExceedTwenty ? rawTotal : Math.min(20, rawTotal))];
+  })) as AttributeMap;
+  const totalImplantBonus = ATTRIBUTES.reduce((sum, attribute) => sum + implantAttributeBonuses[attribute], 0);
+  const implantCapacityMax = 2 + Math.floor(totalAttributes.Vigor / 3) + Math.floor(totalAttributes.Superego / 5);
+  const implantCapacityUsed = sheet.implants.filter((implant) => implant.installed).reduce((sum, implant) => sum + implant.capacity, 0);
+  const installedMicroImplants = sheet.implants.filter((implant) => implant.installed && implant.size === "Micro").length;
+  const shinUnlocked = sheet.progression.shinAwakened || sheet.implants.some((implant) => implantWorks(implant) && implant.unlocksShin);
+  const maxLife = Math.max(1, 20 + sheet.level + totalAttributes.Vigor * 4 + (hasPerk("vantagem-2") ? 4 : 0) - (hasPerk("desvantagem-2") ? 4 : 0));
+  const maxSanity = Math.max(1, 15 + sheet.level + totalAttributes.Sanidade * 4 + (hasPerk("vantagem-3") ? 4 : 0) - (hasPerk("desvantagem-3") ? 4 : 0));
   const maxPosture = maxLife * 2;
-  const maxLoad = 5 + sheet.attributes.Força;
-  const currentLoad = sheet.items.reduce((sum, item) => sum + item.load * item.quantity, 0);
+  const maxLoad = 5 + totalAttributes.Força;
+  const overloadMax = maxLoad + Math.floor(totalAttributes.Força / 2);
+  const currentLoad = sheet.armor.load + sheet.items.reduce((sum, item) => sum + item.load * item.quantity, 0);
   const nextXP = sheet.level >= 20 ? 0 : 8 + sheet.level * 2;
   const sanityPercent = Math.round((sheet.resources.sanity / maxSanity) * 100);
   const sanityState = sanityPercent <= 0 ? "Ruptura" : sanityPercent < 20 ? "À Beira" : sanityPercent < 40 ? "Fraturada" : sanityPercent < 70 ? "Tensa" : "Centrada";
@@ -507,11 +624,16 @@ export default function Home() {
     if (sheet.selectedPerks.includes("vantagem-2") && sheet.selectedPerks.includes("desvantagem-2")) result.push("Corpo Robusto e Corpo Frágil são incompatíveis.");
     if (sheet.selectedPerks.includes("vantagem-3") && sheet.selectedPerks.includes("desvantagem-3")) result.push("Mente Fortificada e Mente Instável são incompatíveis.");
     selectedOfficialPerks.filter((perk) => perk.office !== "Geral" && perk.office !== sheet.identity.office).forEach((perk) => result.push(`${perk.name} exige o Ofício ${perk.office}.`));
-    if (currentLoad > maxLoad) result.push(`Carga excedida em ${(currentLoad - maxLoad).toFixed(1)}.`);
+    if (currentLoad > overloadMax) result.push(`Carga acima até do limite de Sobrecarga (${overloadMax}); exige veículo ou ajuda.`);
+    else if (currentLoad > maxLoad) result.push(`Sobrecarga ativa: -1 Movimento, -1d8 Agilidade e +1 Exaustão por cena de esforço.`);
+    if (implantCapacityUsed > implantCapacityMax) result.push(`Implantes excedem a Capacidade corporal em ${implantCapacityUsed - implantCapacityMax}.`);
+    if (installedMicroImplants > 3) result.push(`Há ${installedMicroImplants} implantes Micro instalados; o máximo ativo é 3.`);
+    sheet.implants.filter((implant) => implant.installed && implant.stress >= 9).forEach((implant) => result.push(`${implant.name} está em ${implant.stress >= 10 ? "falha total" : "Rejeição"} com ${implant.stress} de Estresse.`));
     for (const attribute of ATTRIBUTES) if (sheet.attributes[attribute] > attributeCap) result.push(`${attribute} excede o limite natural ${attributeCap}.`);
-    if (!sheet.progression.shinAwakened && sheet.attributes["Shin e Mang"] > 0) result.push("Shin e Mang possui pontos, mas ainda está bloqueado.");
+    if (!shinUnlocked && sheet.attributes["Shin e Mang"] > 0) result.push("Shin e Mang possui pontos, mas ainda está bloqueado.");
+    if (sheet.resources.activeMang > sheet.v2.shin.mangLimit) result.push("Mang ativo excede o limite conquistado por Provas.");
     return result;
-  }, [attributeBudget, attributeCap, attributeSpent, currentLoad, maxLoad, pdBalance, rawDisadvantagePD, selectedOfficialPerks, sheet]);
+  }, [attributeBudget, attributeCap, attributeSpent, currentLoad, implantCapacityMax, implantCapacityUsed, installedMicroImplants, maxLoad, overloadMax, pdBalance, rawDisadvantagePD, selectedOfficialPerks, sheet, shinUnlocked]);
 
   const filteredTalents = useMemo(() => ATTRIBUTE_TALENTS.filter((talent) => {
     if (talent.attribute !== talentAttribute) return false;
@@ -521,7 +643,7 @@ export default function Home() {
     return !query || talent.name.toLowerCase().includes(query) || talent.effect.toLowerCase().includes(query);
   }), [sheet.attributes, talentAttribute, talentLevel, talentSearch]);
 
-  const filteredPerks = useMemo(() => CREATION_PERKS.filter((perk) => {
+  const filteredPerks = useMemo(() => SYSTEM_PERKS.filter((perk) => {
     if (perk.kind !== perkKind) return false;
     const query = perkSearch.trim().toLowerCase();
     return !query || perk.name.toLowerCase().includes(query) || perk.rule.toLowerCase().includes(query) || perk.office.toLowerCase().includes(query);
@@ -541,8 +663,12 @@ export default function Home() {
     setSheet((current) => ({ ...current, progression: { ...current.progression, [key]: value } }));
   }
 
+  function updateV2(v2: V2Data) {
+    setSheet((current) => ({ ...current, v2 }));
+  }
+
   function setAttribute(attribute: AttributeName, value: number) {
-    if (attribute === "Shin e Mang" && !sheet.progression.shinAwakened) return;
+    if (attribute === "Shin e Mang" && !shinUnlocked) return;
     const safe = clamp(value, 0, 20);
     setSheet((current) => {
       const delta = safe - current.attributes[attribute];
@@ -565,7 +691,7 @@ export default function Home() {
   }
 
   function rollAttribute(attribute: AttributeName) {
-    const count = Math.max(1, sheet.attributes[attribute]);
+    const count = Math.max(1, totalAttributes[attribute]);
     const dice = Array.from({ length: count }, () => Math.floor(Math.random() * 8) + 1);
     setAttributeRoll({ name: attribute, dice, hits: dice.filter((die) => die >= 5).length });
   }
@@ -617,7 +743,7 @@ export default function Home() {
   function rollSkill(skill: Skill) {
     const results = skill.coins.map((coin) => {
       const raw = Math.floor(Math.random() * 8) + 1;
-      const final = clamp(raw + coin.modifier, 1, 8);
+      const final = clamp(raw + coin.modifier + momentumModifier(sheet.resources.momentum), 1, 8);
       const success = final >= coin.successOn;
       const rolled = success ? rollExpression(coin.damage) : null;
       return { coin, raw, final, success, weight: success ? coin.weight : 0, damage: rolled?.total ?? 0, detail: rolled?.detail ?? (success ? "fórmula livre" : "—") };
@@ -627,11 +753,36 @@ export default function Home() {
   }
 
   function addItem() {
-    setSheet((current) => ({ ...current, items: [...current.items, { id: uid("item"), name: "Novo item", category: "Equipamento", quantity: 1, load: 1, durability: 10, durabilityMax: 10, details: "" }] }));
+    setSheet((current) => ({ ...current, items: [...current.items, { id: uid("item"), name: "Novo item", category: "Equipamento", quantity: 1, load: 1, durability: 10, durabilityMax: 10, details: "", quality: "Comum", origin: "", price: 0, damage: "", weight: 0, coins: 0, damageType: "Vermelho", modules: "", specialRule: "" }] }));
   }
 
   function updateItem(itemId: string, patch: Partial<Item>) {
     setSheet((current) => ({ ...current, items: current.items.map((item) => item.id === itemId ? { ...item, ...patch } : item) }));
+  }
+
+  function addImplant(profile: Omit<Implant, "id"> = implantProfile({})) {
+    setSheet((current) => {
+      const implants = [...current.implants, { ...profile, id: uid("implant"), bonuses: { ...profile.bonuses } }];
+      return { ...current, implants, resources: syncResourcesForImplants(current.resources, current.implants, implants) };
+    });
+  }
+
+  function updateImplant(implantId: string, patch: Partial<Implant>) {
+    setSheet((current) => {
+      const implants = current.implants.map((implant) => implant.id === implantId ? { ...implant, ...patch } : implant);
+      return { ...current, implants, resources: syncResourcesForImplants(current.resources, current.implants, implants) };
+    });
+  }
+
+  function updateImplantBonus(implant: Implant, attribute: AttributeName, value: number) {
+    updateImplant(implant.id, { bonuses: { ...implant.bonuses, [attribute]: clamp(value, -3, 3) } });
+  }
+
+  function deleteImplant(implantId: string) {
+    setSheet((current) => {
+      const implants = current.implants.filter((implant) => implant.id !== implantId);
+      return { ...current, implants, resources: syncResourcesForImplants(current.resources, current.implants, implants) };
+    });
   }
 
   function addCustomPerk() {
@@ -675,9 +826,13 @@ export default function Home() {
   }
 
   function addXP() {
-    const adjusted = (hasPerk("vantagem-1") || hasPerk("desvantagem-5")) ? Math.floor(xpGain * 0.9) : xpGain;
+    grantXP(xpGain, "XP");
+  }
+
+  function grantXP(base: number, source: string) {
+    const adjusted = (hasPerk("vantagem-1") || hasPerk("desvantagem-5")) ? Math.floor(base * 0.9) : base;
     setSheet((current) => ({ ...current, xp: current.xp + Math.max(0, adjusted) }));
-    toast.success(`${adjusted} XP adicionado${adjusted !== xpGain ? " após o modificador de 10%" : ""}.`);
+    toast.success(`${adjusted} XP por ${source}${adjusted !== base ? " após o modificador de 10%" : ""}.`);
   }
 
   function levelUp() {
@@ -692,19 +847,37 @@ export default function Home() {
     toast.success("Nível aumentado: o orçamento de Atributos e as Marcas de Treino foram atualizados.");
   }
 
+  function toggleShinAwakening() {
+    setSheet((current) => {
+      const awakened = !current.progression.shinAwakened;
+      if (!awakened) return { ...current, progression: { ...current.progression, shinAwakened: false } };
+      return {
+        ...current,
+        attributes: { ...current.attributes, "Shin e Mang": Math.max(1, current.attributes["Shin e Mang"]) },
+        progression: { ...current.progression, shinAwakened: true },
+        v2: { ...current.v2, shin: { ...current.v2.shin, mangLimit: Math.max(1, current.v2.shin.mangLimit) } },
+      };
+    });
+    toast.success(sheet.progression.shinAwakened ? "Despertar desmarcado; pontos e Provas foram preservados." : "Shin desperto e primeiro Anel liberado.");
+  }
+
   const tabItems = [
     ["identidade", "01", "Identidade", UserRound],
     ["atributos", "02", "Atributos", Gauge],
     ["talentos", "03", "Talentos", Sparkles],
     ["perks", "04", "Perks", ListChecks],
     ["habilidades", "05", "Habilidades", Sword],
-    ["equipamento", "06", "Equipamento", Shield],
-    ["progressao", "07", "Progressão", Zap],
-    ["resumo", "08", "Resumo", FileText],
+    ["combate", "06", "Combate", Dices],
+    ["equipamento", "07", "Equipamento", Shield],
+    ["implantes", "08", "Implantes", Cpu],
+    ["progressao", "09", "Progressão", Zap],
+    ["mente", "10", "Mente & E.G.O.", Brain],
+    ["mestre", "11", "Mestre", AlertTriangle],
+    ["resumo", "12", "Resumo", FileText],
   ] as const;
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" style={{ "--tc-city-art": `url(${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/art/city-bus.webp)`, "--tc-bough-art": `url(${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/art/golden-bough.webp)` } as React.CSSProperties}>
       <Toaster position="bottom-right" richColors />
       <div className="signal-rail" aria-hidden="true"><span>TABLETOP CORP.</span><i /><span>ARQUIVO DE PESSOAL</span></div>
 
@@ -738,7 +911,7 @@ export default function Home() {
         <StatCard tone="sanity" label="Sanidade" value={`${sheet.resources.sanity}/${maxSanity}`} detail={sanityState} icon={<Brain />} />
         <StatCard tone="posture" label="Postura" value={`${sheet.resources.posture}/${maxPosture}`} detail="Vida Máxima × 2" icon={<Shield />} />
         <StatCard tone={pdBalance < 0 ? "danger" : "pd"} label="Saldo PD" value={pdBalance} detail={`${gainedPD} obtidos · ${spentPD} gastos`} icon={<CircleDot />} />
-        <StatCard tone={attributeSpent > attributeBudget ? "danger" : "points"} label="Atributos" value={`${attributeSpent}/${attributeBudget}`} detail={`Limite individual ${attributeCap}`} icon={<Gauge />} />
+        <StatCard tone={attributeSpent > attributeBudget ? "danger" : "points"} label="Atributos" value={`${attributeSpent}/${attributeBudget}`} detail={`${totalImplantBonus >= 0 ? "+" : ""}${totalImplantBonus} por implantes · limite natural ${attributeCap}`} icon={<Gauge />} />
       </section>
 
       {warnings.length > 0 && (
@@ -778,6 +951,7 @@ export default function Home() {
               <div className="form-grid"><TextAreaField label="Duas Âncoras" value={sheet.identity.anchors} onChange={(value) => updateIdentity("anchors", value)} /><TextAreaField label="Laços e razão para ficar" value={sheet.identity.bonds} onChange={(value) => updateIdentity("bonds", value)} /></div>
             </section>
           </div>
+          <OriginDossier origin={sheet.identity.origin} background={sheet.identity.background} record={sheet.v2.origin} onChange={(origin) => updateV2({ ...sheet.v2, origin })} />
           <section className="panel resource-panel">
             <div className="panel-label">RECURSOS ATUAIS</div>
             <div className="resource-grid">
@@ -792,9 +966,10 @@ export default function Home() {
           <SectionHeading eyebrow="02 / CAPACIDADE" title="Dezesseis Atributos" description="Cada ponto concede 1d8; resultados 5+ geram Acerto em testes de Atributo." />
           <div className="attribute-summary"><span>PONTOS DISTRIBUÍDOS</span><strong className={attributeSpent > attributeBudget ? "bad" : ""}>{attributeSpent} / {attributeBudget}</strong><Progress value={clamp((attributeSpent / Math.max(1, attributeBudget)) * 100, 0, 100)} /></div>
           <div className="attribute-groups">
-            {ATTRIBUTE_GROUPS.map((group) => <section className={`attribute-group ${group.tone}`} key={group.name}><header><span>{group.name}</span><small>{group.attributes.reduce((sum, attr) => sum + sheet.attributes[attr], 0)} pontos</small></header><div>{group.attributes.map((attribute) => {
-              const locked = attribute === "Shin e Mang" && !sheet.progression.shinAwakened;
-              return <article className={`attribute-card ${locked ? "locked" : ""}`} key={attribute}><div className="attribute-name"><strong>{attribute}</strong><p>{ATTRIBUTE_HELP[attribute]}</p></div><div className="attribute-control"><Button variant="ghost" size="icon-sm" disabled={locked || sheet.attributes[attribute] <= 0} onClick={() => setAttribute(attribute, sheet.attributes[attribute] - 1)}><Minus /></Button><input aria-label={attribute} type="number" min="0" max="20" value={sheet.attributes[attribute]} onChange={(event) => setAttribute(attribute, Number(event.target.value))} disabled={locked} /><Button variant="ghost" size="icon-sm" disabled={locked || sheet.attributes[attribute] >= attributeCap || attributeSpent >= attributeBudget} onClick={() => setAttribute(attribute, sheet.attributes[attribute] + 1)}><Plus /></Button></div><Button className="roll-attribute" variant="outline" size="sm" disabled={locked || sheet.attributes[attribute] <= 0} onClick={() => rollAttribute(attribute)}><Dices /> {sheet.attributes[attribute]}d8</Button>{locked && <span className="lock-note">BLOQUEADO</span>}</article>;
+            {ATTRIBUTE_GROUPS.map((group) => <section className={`attribute-group ${group.tone}`} key={group.name}><header><span>{group.name}</span><small>{group.attributes.reduce((sum, attr) => sum + sheet.attributes[attr], 0)} naturais · {group.attributes.reduce((sum, attr) => sum + implantAttributeBonuses[attr], 0) >= 0 ? "+" : ""}{group.attributes.reduce((sum, attr) => sum + implantAttributeBonuses[attr], 0)} implantes</small></header><div>{group.attributes.map((attribute) => {
+              const locked = attribute === "Shin e Mang" && !shinUnlocked;
+              const implantValue = implantAttributeBonuses[attribute];
+              return <article className={`attribute-card ${locked ? "locked" : ""}`} key={attribute}><div className="attribute-name"><strong>{attribute}{implantValue !== 0 && <em>{implantValue > 0 ? "+" : ""}{implantValue} IMPLANTE</em>}</strong><p>{ATTRIBUTE_HELP[attribute]}</p><small>Natural {sheet.attributes[attribute]} · Total {totalAttributes[attribute]}</small></div><div className="attribute-control"><Button variant="ghost" size="icon-sm" disabled={locked || sheet.attributes[attribute] <= 0} onClick={() => setAttribute(attribute, sheet.attributes[attribute] - 1)}><Minus /></Button><input aria-label={attribute} type="number" min="0" max="20" value={sheet.attributes[attribute]} onChange={(event) => setAttribute(attribute, Number(event.target.value))} disabled={locked} /><Button variant="ghost" size="icon-sm" disabled={locked || sheet.attributes[attribute] >= attributeCap || attributeSpent >= attributeBudget} onClick={() => setAttribute(attribute, sheet.attributes[attribute] + 1)}><Plus /></Button></div><Button className="roll-attribute" variant="outline" size="sm" disabled={locked || totalAttributes[attribute] <= 0} onClick={() => rollAttribute(attribute)}><Dices /> {totalAttributes[attribute]}d8</Button>{locked && <span className="lock-note">BLOQUEADO</span>}</article>;
             })}</div></section>)}
           </div>
           {attributeRoll && <section className="roll-console"><div><span>TESTE // {attributeRoll.name.toUpperCase()}</span><strong>{attributeRoll.hits} ACERTO{attributeRoll.hits === 1 ? "" : "S"}</strong></div><div className="dice-line">{attributeRoll.dice.map((die, index) => <i key={index} className={die >= 5 ? "hit" : ""}>{die}</i>)}</div></section>}
@@ -859,39 +1034,96 @@ export default function Home() {
           </div>
         </TabsContent>
 
+        <TabsContent value="combate" className="workspace-panel">
+          <SectionHeading eyebrow="06 / OPERAÇÃO" title="Combate, Confrontos e Efeitos" description="Controle a rodada, aplique Momentum às Moedas, compare Peso e mantenha Potência/Contagem de cada efeito separadas." />
+          <CombatWorkspace data={sheet.v2} onChange={updateV2} momentum={sheet.resources.momentum} onMomentum={(value) => updateResource("momentum", value)} lastWeight={skillRoll?.totalWeight ?? 0} lastDamage={skillRoll?.totalDamage ?? 0} activeMang={sheet.resources.activeMang} />
+        </TabsContent>
+
         <TabsContent value="equipamento" className="workspace-panel">
-          <SectionHeading eyebrow="06 / CARGA" title="Armadura e Inventário" description="Carga Máxima = 5 + Força. Durabilidade chega a 0 quando o item fica Inutilizado." />
+          <SectionHeading eyebrow="07 / CARGA" title="Armadura e Inventário" description="Carga Máxima = 5 + Força. É possível excedê-la em piso(Força/2), sofrendo as penalidades de Sobrecarga." />
+          <EquipmentReference />
           <div className="two-column equipment-layout">
-            <section className="panel armor-panel"><div className="panel-label">ARMADURA ATIVA</div><div className="form-grid"><Field label="Nome" value={sheet.armor.name} onChange={(name) => setSheet((current) => ({ ...current, armor: { ...current.armor, name } }))} /><Field label="Classe / perfil" value={sheet.armor.armorClass} onChange={(armorClass) => setSheet((current) => ({ ...current, armor: { ...current.armor, armorClass } }))} /><Field label="Bloqueio fixo" type="number" value={sheet.armor.block} onChange={(block) => setSheet((current) => ({ ...current, armor: { ...current.armor, block: Number(block) } }))} /><Field label="Durabilidade" type="number" value={sheet.armor.durability} onChange={(durability) => setSheet((current) => ({ ...current, armor: { ...current.armor, durability: Number(durability) } }))} /><Field label="Durabilidade máxima" type="number" value={sheet.armor.durabilityMax} onChange={(durabilityMax) => setSheet((current) => ({ ...current, armor: { ...current.armor, durabilityMax: Number(durabilityMax) } }))} /></div><div className="resistance-grid"><label className="red"><span>VERMELHO</span><input type="number" step="0.1" value={sheet.armor.red} onChange={(event) => setSheet((current) => ({ ...current, armor: { ...current.armor, red: Number(event.target.value) } }))} /><small>× dano físico</small></label><label className="white"><span>BRANCO</span><input type="number" step="0.1" value={sheet.armor.white} onChange={(event) => setSheet((current) => ({ ...current, armor: { ...current.armor, white: Number(event.target.value) } }))} /><small>× dano mental</small></label><label className="black"><span>PRETO</span><input type="number" step="0.1" value={sheet.armor.black} onChange={(event) => setSheet((current) => ({ ...current, armor: { ...current.armor, black: Number(event.target.value) } }))} /><small>× Vida/Sanidade</small></label><label className="pale"><span>PÁLIDO</span><input type="number" step="0.1" value={sheet.armor.pale} onChange={(event) => setSheet((current) => ({ ...current, armor: { ...current.armor, pale: Number(event.target.value) } }))} /><small>× dano existencial</small></label></div><TextAreaField label="Módulos, restrições e notas" value={sheet.armor.notes} onChange={(notes) => setSheet((current) => ({ ...current, armor: { ...current.armor, notes } }))} /></section>
-            <section className="panel load-panel"><div className="panel-label">CARGA E RECURSOS</div><div className="load-gauge"><div><span>CARGA ATUAL</span><strong className={currentLoad > maxLoad ? "bad" : ""}>{currentLoad.toFixed(1)} / {maxLoad}</strong></div><Progress value={clamp((currentLoad / Math.max(1, maxLoad)) * 100, 0, 100)} /></div><Field label="Dinheiro" type="number" value={sheet.resources.money} onChange={(value) => updateResource("money", Number(value))} /><div className="formula-note"><strong>Fórmula de dano final</strong><code>piso((arma + dados + bônus) × Mang × resistência) − Bloqueio</code></div></section>
+            <section className="panel armor-panel">
+              <div className="panel-label">ARMADURA ATIVA</div>
+              <div className="form-grid"><Field label="Nome" value={sheet.armor.name} onChange={(name) => setSheet((current) => ({ ...current, armor: { ...current.armor, name } }))} /><Field label="Classe / perfil" value={sheet.armor.armorClass} onChange={(armorClass) => setSheet((current) => ({ ...current, armor: { ...current.armor, armorClass } }))} /><Field label="Origem / fabricante" value={sheet.armor.origin} onChange={(origin) => setSheet((current) => ({ ...current, armor: { ...current.armor, origin } }))} /><Field label="Carga" type="number" min={0} step={0.1} value={sheet.armor.load} onChange={(load) => setSheet((current) => ({ ...current, armor: { ...current.armor, load: Number(load) } }))} /><Field label="Preço / dívida" type="number" min={0} value={sheet.armor.price} onChange={(price) => setSheet((current) => ({ ...current, armor: { ...current.armor, price: Number(price) } }))} /><Field label="Bloqueio fixo" type="number" value={sheet.armor.block} onChange={(block) => setSheet((current) => ({ ...current, armor: { ...current.armor, block: Number(block) } }))} /><Field label="Durabilidade" type="number" value={sheet.armor.durability} onChange={(durability) => setSheet((current) => ({ ...current, armor: { ...current.armor, durability: Number(durability) } }))} /><Field label="Durabilidade máxima" type="number" value={sheet.armor.durabilityMax} onChange={(durabilityMax) => setSheet((current) => ({ ...current, armor: { ...current.armor, durabilityMax: Number(durabilityMax) } }))} /></div>
+              <div className="resistance-grid"><label className="red"><span>VERMELHO</span><input type="number" step="0.1" value={sheet.armor.red} onChange={(event) => setSheet((current) => ({ ...current, armor: { ...current.armor, red: Number(event.target.value) } }))} /><small>× dano físico</small></label><label className="white"><span>BRANCO</span><input type="number" step="0.1" value={sheet.armor.white} onChange={(event) => setSheet((current) => ({ ...current, armor: { ...current.armor, white: Number(event.target.value) } }))} /><small>× dano mental</small></label><label className="black"><span>PRETO</span><input type="number" step="0.1" value={sheet.armor.black} onChange={(event) => setSheet((current) => ({ ...current, armor: { ...current.armor, black: Number(event.target.value) } }))} /><small>× Vida/Sanidade</small></label><label className="pale"><span>PÁLIDO</span><input type="number" step="0.1" value={sheet.armor.pale} onChange={(event) => setSheet((current) => ({ ...current, armor: { ...current.armor, pale: Number(event.target.value) } }))} /><small>× dano existencial</small></label></div>
+              <div className="form-grid"><TextAreaField label="Módulos defensivos" value={sheet.armor.modules} onChange={(modules) => setSheet((current) => ({ ...current, armor: { ...current.armor, modules } }))} /><TextAreaField label="Regra especial" value={sheet.armor.specialRule} onChange={(specialRule) => setSheet((current) => ({ ...current, armor: { ...current.armor, specialRule } }))} /><TextAreaField label="Requisitos / dono" value={sheet.armor.requirement} onChange={(requirement) => setSheet((current) => ({ ...current, armor: { ...current.armor, requirement } }))} /><TextAreaField label="Aparência, história e notas" value={sheet.armor.notes} onChange={(notes) => setSheet((current) => ({ ...current, armor: { ...current.armor, notes } }))} /></div>
+            </section>
+            <section className="panel load-panel"><div className="panel-label">CARGA E RECURSOS</div><div className="load-gauge"><div><span>CARGA ATUAL</span><strong className={currentLoad > maxLoad ? "bad" : ""}>{currentLoad.toFixed(1)} / {maxLoad}</strong></div><Progress value={clamp((currentLoad / Math.max(1, overloadMax)) * 100, 0, 100)} /></div><p className="load-band">Normal até {maxLoad} · Sobrecarga até {overloadMax} · acima disso requer ajuda</p><Field label="Dinheiro" type="number" value={sheet.resources.money} onChange={(value) => updateResource("money", Number(value))} /><div className="formula-note"><strong>Fórmula de dano final</strong><code>piso((arma + dados + bônus) × Mang × resistência) − Bloqueio</code></div></section>
           </div>
-          <section className="panel inventory-panel"><div className="inventory-header"><div><span>INVENTÁRIO</span><strong>{sheet.items.length} registro(s)</strong></div><Button onClick={addItem}><Plus /> Novo item</Button></div>{sheet.items.length === 0 ? <div className="empty-state"><BriefcaseBusiness /><strong>Inventário vazio</strong><p>Adicione armas, consumíveis, implantes e objetos pessoais.</p></div> : <div className="item-list">{sheet.items.map((item) => <article key={item.id}><div className="item-main"><input value={item.name} onChange={(event) => updateItem(item.id, { name: event.target.value })} /><Choice label={`Categoria de ${item.name}`} value={item.category} options={["Arma", "Equipamento", "Consumível", "Implante", "Ferramenta", "Objeto pessoal", "Outro"]} onChange={(category) => updateItem(item.id, { category })} /></div><div className="item-numbers"><Field label="Qtd." type="number" min={1} value={item.quantity} onChange={(quantity) => updateItem(item.id, { quantity: Number(quantity) })} /><Field label="Carga/un." type="number" min={0} step={0.1} value={item.load} onChange={(load) => updateItem(item.id, { load: Number(load) })} /><Field label="Durab." type="number" min={0} value={item.durability} onChange={(durability) => updateItem(item.id, { durability: Number(durability) })} /><Field label="Máx." type="number" min={0} value={item.durabilityMax} onChange={(durabilityMax) => updateItem(item.id, { durabilityMax: Number(durabilityMax) })} /></div><TextAreaField label="Efeito, módulos, preço ou complicação" value={item.details} onChange={(details) => updateItem(item.id, { details })} rows={2} /><Button variant="ghost" size="icon-sm" onClick={() => setSheet((current) => ({ ...current, items: current.items.filter((entry) => entry.id !== item.id) }))}><Trash2 /></Button></article>)}</div>}</section>
+          <section className="panel inventory-panel"><div className="inventory-header"><div><span>INVENTÁRIO</span><strong>{sheet.items.length} registro(s)</strong></div><Button onClick={addItem}><Plus /> Novo item</Button></div>{sheet.items.length === 0 ? <div className="empty-state"><BriefcaseBusiness /><strong>Inventário vazio</strong><p>Adicione armas, consumíveis, implantes e objetos pessoais.</p></div> : <div className="item-list v2-items">{sheet.items.map((item) => <article key={item.id}><div className="item-main"><input value={item.name} onChange={(event) => updateItem(item.id, { name: event.target.value })} /><Choice label={`Categoria de ${item.name}`} value={item.category} options={["Arma", "Equipamento", "Consumível", "Implante", "Ferramenta", "Objeto pessoal", "Outro"]} onChange={(category) => updateItem(item.id, { category })} /></div><div className="item-numbers"><Field label="Qtd." type="number" min={1} value={item.quantity} onChange={(quantity) => updateItem(item.id, { quantity: Number(quantity) })} /><Field label="Carga/un." type="number" min={0} step={0.1} value={item.load} onChange={(load) => updateItem(item.id, { load: Number(load) })} /><Field label="Durab." type="number" min={0} value={item.durability} onChange={(durability) => updateItem(item.id, { durability: Number(durability) })} /><Field label="Máx." type="number" min={0} value={item.durabilityMax} onChange={(durabilityMax) => updateItem(item.id, { durabilityMax: Number(durabilityMax) })} /></div><div className="item-profile"><Field label="Qualidade / grau" value={item.quality} onChange={(quality) => updateItem(item.id, { quality })} /><Field label="Origem / fabricante" value={item.origin} onChange={(origin) => updateItem(item.id, { origin })} /><Field label="Preço / dívida" type="number" min={0} value={item.price} onChange={(price) => updateItem(item.id, { price: Number(price) })} />{item.category === "Arma" && <><Field label="Dano" value={item.damage} onChange={(damage) => updateItem(item.id, { damage })} /><Field label="Peso" type="number" min={0} value={item.weight} onChange={(weight) => updateItem(item.id, { weight: Number(weight) })} /><Field label="Moedas" type="number" min={0} value={item.coins} onChange={(coins) => updateItem(item.id, { coins: Number(coins) })} /><label className="field"><span>Tipo de dano</span><Choice label={`Dano de ${item.name}`} value={item.damageType} options={DAMAGE_TYPES} onChange={(damageType) => updateItem(item.id, { damageType })} /></label></>}</div><div className="item-notes"><TextAreaField label="Módulos" value={item.modules} onChange={(modules) => updateItem(item.id, { modules })} rows={2} /><TextAreaField label="Regra especial" value={item.specialRule} onChange={(specialRule) => updateItem(item.id, { specialRule })} rows={2} /><TextAreaField label="Usos, custos e detalhes" value={item.details} onChange={(details) => updateItem(item.id, { details })} rows={2} /></div><Button variant="ghost" size="icon-sm" onClick={() => setSheet((current) => ({ ...current, items: current.items.filter((entry) => entry.id !== item.id) }))}><Trash2 /></Button></article>)}</div>}</section>
+        </TabsContent>
+
+        <TabsContent value="implantes" className="workspace-panel">
+          <SectionHeading eyebrow="08 / MODIFICAÇÃO CORPORAL" title="Implantes e Compatibilidade" description="Implantes instalados ocupam Capacidade e seus bônus entram automaticamente nos Atributos, rolagens e recursos derivados — mas não liberam Talentos." />
+          <section className="implant-overview panel">
+            <div className="implant-capacity">
+              <div><span>CAPACIDADE CORPORAL</span><strong className={implantCapacityUsed > implantCapacityMax ? "bad" : ""}>{implantCapacityUsed} / {implantCapacityMax}</strong><small>2 + piso(Vigor total / 3) + piso(Superego total / 5)</small></div>
+              <Progress value={clamp((implantCapacityUsed / Math.max(1, implantCapacityMax)) * 100, 0, 100)} />
+            </div>
+            <div className="implant-overview-stats"><StatCard label="Instalados" value={sheet.implants.filter((implant) => implant.installed).length} detail={`${sheet.implants.length} registrado(s)`} /><StatCard label="Micro" value={`${installedMicroImplants}/3`} detail="máximo ativo" /><StatCard label="Bônus total" value={`${totalImplantBonus >= 0 ? "+" : ""}${totalImplantBonus}`} detail="em Atributos" /></div>
+          </section>
+
+          <section className="implant-catalog panel">
+            <div className="implant-section-header"><div><span>MODELOS DE REFERÊNCIA</span><strong>Implantes prontos do sistema</strong></div><Button onClick={() => addImplant()}><Plus /> Implante vazio</Button></div>
+            <div className="implant-template-list">{READY_IMPLANTS.map((implant) => <button key={implant.name} onClick={() => addImplant(implant)}><Cpu /><span><strong>{implant.name}</strong><small>Cap. {implant.capacity} · {implant.bodyLocation}</small></span><Plus /></button>)}</div>
+          </section>
+
+          <section className="implant-list">
+            {sheet.implants.length === 0 ? <div className="empty-state panel"><Cpu /><strong>Nenhum implante registrado</strong><p>Use um modelo pronto ou crie uma modificação corporal do zero.</p><Button onClick={() => addImplant()}><Plus /> Criar implante</Button></div> : sheet.implants.map((implant, index) => {
+              const stressState = implant.stress >= 10 ? "DESLIGADO" : implant.stress >= 9 ? "REJEIÇÃO" : implant.stress >= 6 ? "INSTÁVEL" : implant.stress >= 3 ? "SOBRECARGA" : "ESTÁVEL";
+              const stressTone = implant.stress >= 9 ? "critical" : implant.stress >= 6 ? "danger" : implant.stress >= 3 ? "warning" : "stable";
+              const bonuses = ATTRIBUTES.filter((attribute) => implant.bonuses[attribute] !== 0);
+              return <article className={`implant-card panel ${!implant.installed ? "not-installed" : ""}`} key={implant.id}>
+                <header className="implant-card-header"><div className="implant-index"><span>IMPLANTE</span><strong>{String(index + 1).padStart(2, "0")}</strong></div><div className="implant-title"><input aria-label={`Nome do implante ${index + 1}`} value={implant.name} onChange={(event) => updateImplant(implant.id, { name: event.target.value })} /><span className={`implant-state ${stressTone}`}>{stressState}</span></div><label className="implant-installed"><Switch checked={implant.installed} onCheckedChange={(installed) => updateImplant(implant.id, { installed })} /><span>{implant.installed ? "Instalado" : "Removido"}</span></label><Button variant="ghost" size="icon-sm" aria-label={`Excluir ${implant.name}`} onClick={() => deleteImplant(implant.id)}><Trash2 /></Button></header>
+                <div className="implant-body">
+                  <div className="implant-meta form-grid"><Field label="Fabricante / Oficina" value={implant.manufacturer} onChange={(manufacturer) => updateImplant(implant.id, { manufacturer })} /><Field label="Local do corpo" value={implant.bodyLocation} onChange={(bodyLocation) => updateImplant(implant.id, { bodyLocation })} /><Field label="Classe" value={implant.implantClass} onChange={(implantClass) => updateImplant(implant.id, { implantClass })} /><label className="field"><span>Tamanho</span><Choice label={`Tamanho de ${implant.name}`} value={implant.size} options={IMPLANT_SIZES} onChange={(size) => updateImplant(implant.id, { size, capacity: IMPLANT_SIZE_CAPACITY[size] ?? implant.capacity })} /></label><Field label="Capacidade ocupada" type="number" min={0} value={implant.capacity} onChange={(capacity) => updateImplant(implant.id, { capacity: clamp(Number(capacity), 0, 20) })} /><label className="field"><span>Estresse atual / 10</span><div className="implant-stress-control"><NumberBox label={`Estresse de ${implant.name}`} value={implant.stress} min={0} max={10} onChange={(stress) => updateImplant(implant.id, { stress })} /><Progress value={implant.stress * 10} /></div></label></div>
+                  <div className="implant-bonus-panel"><div className="implant-bonus-heading"><div><span>ATRIBUTOS / BÔNUS</span><strong>{bonuses.length ? bonuses.map((attribute) => `${attribute} ${implant.bonuses[attribute] > 0 ? "+" : ""}${implant.bonuses[attribute]}`).join(" · ") : "Nenhum bônus definido"}</strong></div><small>Máximo sugerido: +3 no mesmo implante</small></div><div className="implant-bonus-grid">{ATTRIBUTES.map((attribute) => <label key={attribute}><span>{attribute}</span><input type="number" min={-3} max={3} value={implant.bonuses[attribute]} onChange={(event) => updateImplantBonus(implant, attribute, Number(event.target.value))} /></label>)}</div></div>
+                  <div className="implant-effects form-grid"><TextAreaField className="full" label="Benefício principal" value={implant.benefit} onChange={(benefit) => updateImplant(implant.id, { benefit })} rows={2} /><TextAreaField label="Ação nova" value={implant.newAction} onChange={(newAction) => updateImplant(implant.id, { newAction })} rows={2} /><TextAreaField label="Custo / recarga" value={implant.costRecharge} onChange={(costRecharge) => updateImplant(implant.id, { costRecharge })} rows={2} /><TextAreaField label="Complicação e sinais de Rejeição" value={implant.complication} onChange={(complication) => updateImplant(implant.id, { complication })} rows={3} /><TextAreaField label="Manutenção, peças e credenciais" value={implant.maintenance} onChange={(maintenance) => updateImplant(implant.id, { maintenance })} rows={3} /></div>
+                  <div className="implant-flags"><label><Switch checked={implant.exceedsLimit} onCheckedChange={(exceedsLimit) => updateImplant(implant.id, { exceedsLimit })} /><span><strong>Excede 20 expressamente</strong><small>Exige +1 Capacidade, HE ou superior e Complicação.</small></span></label><label><Switch checked={implant.unlocksShin} onCheckedChange={(unlocksShin) => updateImplant(implant.id, { unlocksShin })} /><span><strong>Desbloqueia Shin e Mang</strong><small>Somente WAW/ALEPH; começa com 3 de Estresse.</small></span></label></div>
+                </div>
+              </article>;
+            })}
+          </section>
         </TabsContent>
 
         <TabsContent value="progressao" className="workspace-panel">
-          <SectionHeading eyebrow="07 / CARREIRA" title="Experiência, Treino e Luz" description="Nível mede crescimento pessoal; Grau mede reputação profissional e licença." />
+          <SectionHeading eyebrow="09 / CARREIRA" title="Experiência, Treino e Luz" description="Nível mede crescimento pessoal; Grau mede reputação profissional e licença." />
           <div className="progression-grid">
-            <section className="panel xp-panel"><div className="panel-label">EXPERIÊNCIA</div><div className="level-display"><span>NÍVEL</span><strong>{String(sheet.level).padStart(2, "0")}</strong><small>limite de Atributo {attributeCap}</small></div><div className="xp-track"><div><span>{sheet.xp} XP</span><strong>{sheet.level >= 20 ? "NÍVEL MÁXIMO" : `${nextXP} para subir`}</strong></div><Progress value={sheet.level >= 20 ? 100 : clamp((sheet.xp / nextXP) * 100, 0, 100)} /></div><div className="xp-actions"><NumberBox label="XP ganho" value={xpGain} min={0} max={99} onChange={setXpGain} /><Button variant="outline" onClick={addXP}><Plus /> Adicionar XP</Button><Button onClick={levelUp} disabled={sheet.level >= 20 || sheet.xp < nextXP}>Subir de nível</Button></div><p className="rule-note">Ao subir: +2 Pontos de Atributo e +1 Marca de Treino. Habilidoso concede +1 ponto extra, mas reduz o XP recebido em 10%.</p></section>
+            <section className="panel xp-panel"><div className="panel-label">EXPERIÊNCIA</div><div className="level-display"><span>NÍVEL</span><strong>{String(sheet.level).padStart(2, "0")}</strong><small>limite de Atributo {attributeCap}</small></div><div className="xp-track"><div><span>{sheet.xp} XP</span><strong>{sheet.level >= 20 ? "NÍVEL MÁXIMO" : `${nextXP} para subir`}</strong></div><Progress value={sheet.level >= 20 ? 100 : clamp((sheet.xp / nextXP) * 100, 0, 100)} /></div><div className="xp-actions"><NumberBox label="XP ganho" value={xpGain} min={0} max={99} onChange={setXpGain} /><Button variant="outline" onClick={addXP}><Plus /> Adicionar XP</Button><Button onClick={levelUp} disabled={sheet.level >= 20 || sheet.xp < nextXP}>Subir de nível</Button></div><div className="xp-source-buttons"><span>FONTES RÁPIDAS</span><button onClick={() => grantXP(2, "participação")}>Participou +2</button><button onClick={() => grantXP(1, "contrato")}>Contrato +1</button><button onClick={() => grantXP(1, "Desejo")}>Desejo +1</button><button onClick={() => grantXP(1, "Vínculo")}>Vínculo +1</button><button onClick={() => grantXP(1, "ameaça alta")}>Ameaça +1</button></div><p className="rule-note">Ao subir: +2 Pontos de Atributo e +1 Marca de Treino. Habilidoso concede +1 ponto extra, mas reduz o XP recebido em 10%. Conclusão de arco concede 2–5 XP pelo campo manual.</p></section>
             <section className="panel training-panel"><div className="panel-label">TREINAMENTO</div><div className="training-stat"><span>Marcas disponíveis</span><NumberBox label="Marcas de Treino" value={sheet.progression.trainingMarks} onChange={(value) => updateProgression("trainingMarks", value)} /></div><div className="training-stat"><span>Custo das escolhas extras</span><strong>{talentTrainingCost}</strong></div><TextAreaField label="Projetos em andamento e Progresso" value={sheet.progression.trainingNotes} onChange={(value) => updateProgression("trainingNotes", value)} rows={7} placeholder="Ex.: Despertar Shin — 7/12 de Progresso…" /></section>
           </div>
           <section className="panel fixer-panel"><div className="fixer-header"><div><span>LICENÇA DE FIXER</span><strong>Grau {sheet.progression.fixerGrade}</strong></div><div><Field label="Reputação" type="number" min={0} value={sheet.progression.reputation} onChange={(value) => updateProgression("reputation", Number(value))} /><Field label="Contratos" type="number" min={0} value={sheet.progression.contracts} onChange={(value) => updateProgression("contracts", Number(value))} /><label className="field"><span>Grau atual</span><Choice label="Grau de Fixer" value={sheet.progression.fixerGrade} options={fixerGrades.map((entry) => entry.grade)} onChange={(value) => updateProgression("fixerGrade", value)} /></label></div></div><div className="grade-track">{fixerGrades.map((entry) => { const eligible = sheet.level >= entry.level && sheet.progression.reputation >= entry.reputation && sheet.progression.contracts >= entry.contracts; const current = sheet.progression.fixerGrade === entry.grade; return <article key={entry.grade} className={`${eligible ? "eligible" : ""} ${current ? "current" : ""}`}><div><span>GRAU</span><strong>{entry.grade}</strong></div><p>Nível {entry.level} · Rep. {entry.reputation} · {entry.contracts} contratos</p><small>{entry.requirement}</small>{eligible ? <Badge><Check /> Elegível</Badge> : <Badge variant="outline">Pendente</Badge>}</article>; })}</div><p className="rule-note">Cumprir os números dá direito à avaliação; a promoção ainda precisa acontecer em cena.</p></section>
-          <section className="panel shin-panel"><div className="shin-header"><div><Zap /><span>SHIN E MANG</span><strong>{sheet.progression.shinAwakened ? "DESPERTO" : "BLOQUEADO"}</strong></div><Button variant={sheet.progression.shinAwakened ? "default" : "outline"} onClick={() => updateProgression("shinAwakened", !sheet.progression.shinAwakened)}>{sheet.progression.shinAwakened ? "Shin desperto" : "Marcar despertar"}</Button></div><div className="shin-grid"><div><span>Mang ativo</span><NumberBox label="Mang ativo" value={sheet.resources.activeMang} min={0} max={Math.max(0, sheet.attributes["Shin e Mang"])} onChange={(value) => updateResource("activeMang", value)} /><small>Limite: {sheet.attributes["Shin e Mang"]}</small></div><div><span>Multiplicador ao gastar tudo</span><strong>×{mangMultiplier(sheet.resources.activeMang).toFixed(1)}</strong><small>piso em décimos de 1,1ⁿ; 7 fecha em 2,0×</small></div><div><span>Requisitos de despertar</span><p>Vontade 6, Ego 4, evento de Luz e 12 de Progresso em treino Dif. 4.</p></div></div></section>
+          <ProgressionV2 data={sheet.v2} onChange={updateV2} shinAttribute={totalAttributes["Shin e Mang"]} shinUnlocked={shinUnlocked} awakened={sheet.progression.shinAwakened} onAwaken={toggleShinAwakening} activeMang={sheet.resources.activeMang} onActiveMang={(value) => updateResource("activeMang", value)} />
+        </TabsContent>
+
+        <TabsContent value="mente" className="workspace-panel">
+          <SectionHeading eyebrow="10 / PSIQUE" title="Mente, E.G.O. e Distorção" description="Âncoras e Feridas alteram automaticamente o Teste de Ruptura; Corrosão e Distorção têm trilhas próprias." />
+          <MindWorkspace data={sheet.v2} onChange={updateV2} sanity={sheet.resources.sanity} maxSanity={maxSanity} ego={totalAttributes.Ego} willpower={totalAttributes.Vontade} dissonance={sheet.resources.dissonance} />
+        </TabsContent>
+
+        <TabsContent value="mestre" className="workspace-panel">
+          <SectionHeading eyebrow="11 / CONTENÇÃO" title="Anormalidades e Ferramentas do Mestre" description="Construtor completo do Manual V2 com orçamento por risco, Qliphoth, Trabalhos, recompensas E.G.O., encontros e Relógios." />
+          <MasterWorkspace data={sheet.v2} onChange={updateV2} />
         </TabsContent>
 
         <TabsContent value="resumo" className="workspace-panel print-sheet">
-          <SectionHeading eyebrow="08 / ARQUIVO FINAL" title={sheet.identity.name || "Personagem sem nome"} description={`${sheet.identity.office} · ${sheet.identity.origin} · Nível ${sheet.level}`} />
+          <SectionHeading eyebrow="12 / ARQUIVO FINAL" title={sheet.identity.name || "Personagem sem nome"} description={`${sheet.identity.office} · ${sheet.identity.origin} · Nível ${sheet.level}`} />
           <div className="summary-actions"><Button onClick={() => window.print()}><Printer /> Imprimir / salvar PDF</Button><Button variant="outline" onClick={exportSheet}><Download /> Exportar JSON</Button></div>
           <section className="summary-hero"><div><span>CONCEITO</span><p>{sheet.identity.concept || "Não registrado."}</p></div><div className="summary-vitals"><StatCard label="Vida" value={`${sheet.resources.life}/${maxLife}`} /><StatCard label="Sanidade" value={`${sheet.resources.sanity}/${maxSanity}`} detail={sanityState} /><StatCard label="Postura" value={`${sheet.resources.posture}/${maxPosture}`} /><StatCard label="Grau" value={sheet.progression.fixerGrade} detail={`${sheet.progression.reputation} reputação`} /></div></section>
-          <section className="summary-section"><h3>ATRIBUTOS</h3><div className="summary-attributes">{ATTRIBUTES.map((attribute) => <div key={attribute}><span>{attribute}</span><strong>{sheet.attributes[attribute]}</strong><small>{sheet.attributes[attribute]}d8</small></div>)}</div></section>
+          <section className="summary-section"><h3>ATRIBUTOS</h3><div className="summary-attributes">{ATTRIBUTES.map((attribute) => <div key={attribute}><span>{attribute}</span><strong>{totalAttributes[attribute]}</strong><small>{sheet.attributes[attribute]} natural{implantAttributeBonuses[attribute] !== 0 ? ` · ${implantAttributeBonuses[attribute] > 0 ? "+" : ""}${implantAttributeBonuses[attribute]} implante` : ""}</small></div>)}</div></section>
           <div className="summary-columns"><section className="summary-section"><h3>VANTAGENS</h3>{selectedOfficialPerks.filter((perk) => perk.kind === "vantagem").map((perk) => <div className="summary-entry" key={perk.id}><strong>{perk.name}</strong><p>{perk.rule}</p></div>)}{sheet.customPerks.filter((perk) => perk.kind === "vantagem").map((perk) => <div className="summary-entry" key={perk.id}><strong>{perk.name} <small>custom</small></strong><p>{perk.rule}</p></div>)}</section><section className="summary-section"><h3>DESVANTAGENS</h3>{selectedOfficialPerks.filter((perk) => perk.kind === "desvantagem").map((perk) => <div className="summary-entry" key={perk.id}><strong>{perk.name}</strong><p>{perk.rule}</p></div>)}{sheet.customPerks.filter((perk) => perk.kind === "desvantagem").map((perk) => <div className="summary-entry" key={perk.id}><strong>{perk.name} <small>custom</small></strong><p>{perk.rule}</p></div>)}</section></div>
           <section className="summary-section"><h3>TALENTOS</h3><div className="summary-talents">{sheet.selectedTalents.map((id) => ATTRIBUTE_TALENTS.find((talent) => talent.id === id)).filter(Boolean).map((talent) => talent && <div key={talent.id}><span>{talent.attribute} · Nível {talent.level}</span><strong>{talent.name}</strong><p>{talent.effect}</p></div>)}</div></section>
           <section className="summary-section"><h3>HABILIDADES</h3>{sheet.skills.map((skill) => <article className="summary-skill" key={skill.id}><header><div><span>{skill.type}</span><strong>{skill.name}</strong></div><small>{skill.cost} · {skill.range} · {skill.targets}</small></header><p>{skill.description}</p><div>{skill.coins.map((coin, index) => <span key={coin.id}>#{index + 1} {coin.name}: Peso {coin.weight}, {coin.damage} {coin.damageType}{coin.effect ? `, ${coin.effect}` : ""}</span>)}</div></article>)}</section>
+          <section className="summary-section"><h3>IMPLANTES — CAPACIDADE {implantCapacityUsed}/{implantCapacityMax}</h3>{sheet.implants.length === 0 ? <div className="summary-entry"><p>Nenhum implante registrado.</p></div> : sheet.implants.map((implant) => { const bonuses = ATTRIBUTES.filter((attribute) => implant.bonuses[attribute] !== 0); return <div className="summary-entry" key={implant.id}><strong>{implant.name} · {implant.installed ? (implantWorks(implant) ? "INSTALADO" : "DESLIGADO") : "REMOVIDO"}</strong><p>{implant.size} · Cap. {implant.capacity} · Estresse {implant.stress}/10 · {implant.bodyLocation || "local não registrado"}</p>{bonuses.length > 0 && <p>Bônus: {bonuses.map((attribute) => `${attribute} ${implant.bonuses[attribute] > 0 ? "+" : ""}${implant.bonuses[attribute]}`).join(" · ")}</p>}<p>{implant.benefit}</p><p>{implant.complication}</p></div>; })}</section>
+          <div className="summary-columns"><section className="summary-section"><h3>ORIGEM V2</h3><div className="summary-entry"><strong>Casa</strong><p>{sheet.v2.origin.home || "—"}</p><strong>Rotina</strong><p>{sheet.v2.origin.routine || "—"}</p><strong>Vínculo / Tabu</strong><p>{sheet.v2.origin.link || "—"} · {sheet.v2.origin.taboo || "—"}</p><strong>Ausência / Dívida</strong><p>{sheet.v2.origin.absence || "—"} · {sheet.v2.origin.debt || "—"}</p></div></section><section className="summary-section"><h3>MENTE & E.G.O.</h3><div className="summary-entry"><strong>{sheet.v2.mind.egoName || "E.G.O. não manifestado"}</strong><p>{sheet.v2.mind.egoForm} · {sheet.v2.mind.egoPrinciple}</p><p>Corrosão {sheet.v2.mind.corrosion}/6 · Distorção {sheet.v2.mind.distortionStage}/6 · Dissonância {sheet.resources.dissonance}/6</p><p>Âncoras ativas: {sheet.v2.mind.anchors.filter((entry) => entry.active).length} · Feridas abertas: {sheet.v2.mind.wounds.filter((entry) => entry.active).length}</p></div></section></div>
+          <section className="summary-section"><h3>COMBATE & SHIN</h3><div className="summary-entry"><strong>Momentum {sheet.resources.momentum > 0 ? "+" : ""}{sheet.resources.momentum} · Mang {sheet.resources.activeMang}/{sheet.v2.shin.mangLimit}</strong><p>{sheet.v2.combat.effects.length ? sheet.v2.combat.effects.map((effect) => `${effect.name} ${effect.power}/${effect.count}`).join(" · ") : "Nenhum efeito ativo."}</p><p>Provas concluídas: {sheet.v2.shin.trials.filter((trial) => trial.complete).length} · Sobrecarga de Luz {sheet.v2.shin.lightOverload}/6</p></div></section>
           <div className="summary-columns"><section className="summary-section"><h3>ARMADURA</h3><div className="summary-entry"><strong>{sheet.armor.name}</strong><p>V {sheet.armor.red}× · B {sheet.armor.white}× · P {sheet.armor.black}× · Pá {sheet.armor.pale}× · Bloqueio {sheet.armor.block}</p><p>{sheet.armor.notes}</p></div></section><section className="summary-section"><h3>INVENTÁRIO</h3>{sheet.items.map((item) => <div className="summary-entry" key={item.id}><strong>{item.quantity}× {item.name}</strong><p>{item.category} · Carga {(item.load * item.quantity).toFixed(1)} · Dur. {item.durability}/{item.durabilityMax}</p><p>{item.details}</p></div>)}</section></div>
           <section className="summary-section"><h3>NOTAS DA CAMPANHA</h3><textarea value={sheet.notes} onChange={(event) => setSheet((current) => ({ ...current, notes: event.target.value }))} rows={8} placeholder="Contratos, contatos, Feridas, Âncoras quebradas, promessas…" /></section>
           {warnings.length > 0 && <section className="summary-section summary-warnings"><h3>PENDÊNCIAS</h3>{warnings.map((warning, index) => <p key={index}>• {warning}</p>)}</section>}
         </TabsContent>
       </Tabs>
-      <footer className="app-footer"><span>DOCUMENTO DE USO INTERNO</span><i>TABLETOP CORP. // ARQUIVO LOCAL</i><span>V.01</span></footer>
+      <footer className="app-footer"><span>DOCUMENTO DE USO INTERNO</span><i>TABLETOP CORP. // ARQUIVO LOCAL · ARTE: PROJECT MOON</i><span>V.02</span></footer>
     </main>
   );
 }
