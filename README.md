@@ -5,6 +5,7 @@ Aplicação estática para criar e administrar fichas de jogador do sistema Tabl
 ## Recursos
 
 - salvamento automático no navegador;
+- retrato do personagem com compressão, salvamento local e inclusão na ficha exportada;
 - importação e exportação de fichas em JSON;
 - cálculos automáticos de Atributos, Vida, Sanidade, Postura, Carga/Sobrecarga, XP e PD;
 - catálogo completo com 200 Vantagens/Desvantagens e 1.280 Talentos;

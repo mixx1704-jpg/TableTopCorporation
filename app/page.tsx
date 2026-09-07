@@ -252,6 +252,7 @@ type Sheet = {
     player: string;
     pronouns: string;
     age: string;
+    portrait: string;
     appearance: string;
     origin: string;
     background: string;
@@ -310,6 +311,7 @@ const DEFAULT_SHEET: Sheet = {
     player: "",
     pronouns: "",
     age: "",
+    portrait: "",
     appearance: "",
     origin: "Ruas de Trás",
     background: "Rato Experiente",
@@ -539,6 +541,7 @@ export default function Home() {
   const [xpGain, setXpGain] = useState(2);
   const [customPerkDraft, setCustomPerkDraft] = useState({ name: "", kind: "vantagem" as "vantagem" | "desvantagem", pd: 1, rule: "" });
   const importRef = useRef<HTMLInputElement>(null);
+  const portraitRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -651,6 +654,33 @@ export default function Home() {
 
   function updateIdentity<K extends keyof Sheet["identity"]>(key: K, value: Sheet["identity"][K]) {
     setSheet((current) => ({ ...current, identity: { ...current.identity, [key]: value } }));
+  }
+
+  function importPortrait(file?: File) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return toast.error("Escolha um arquivo de imagem.");
+    if (file.size > 12 * 1024 * 1024) return toast.error("A imagem deve ter no máximo 12 MB.");
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const source = String(reader.result ?? "");
+      const picture = new window.Image();
+      picture.onload = () => {
+        const limit = 900;
+        const scale = Math.min(1, limit / Math.max(picture.width, picture.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(picture.width * scale));
+        canvas.height = Math.max(1, Math.round(picture.height * scale));
+        const context = canvas.getContext("2d");
+        if (!context) return toast.error("Não foi possível preparar a imagem.");
+        context.drawImage(picture, 0, 0, canvas.width, canvas.height);
+        updateIdentity("portrait", canvas.toDataURL("image/webp", 0.84));
+        toast.success("Aparência registrada na ficha.");
+      };
+      picture.onerror = () => toast.error("Não foi possível abrir essa imagem.");
+      picture.src = source;
+    };
+    reader.readAsDataURL(file);
   }
 
   function updateResource<K extends keyof Sheet["resources"]>(key: K, value: number) {
@@ -900,6 +930,7 @@ export default function Home() {
 
       <section className="status-deck">
         <div className="subject-card">
+          <div className={`subject-thumb ${sheet.identity.portrait ? "has-image" : ""}`} style={sheet.identity.portrait ? { backgroundImage: `url(${sheet.identity.portrait})` } : undefined}>{!sheet.identity.portrait && <UserRound />}</div>
           <div className="subject-number">#{String(sheet.level).padStart(2, "0")}</div>
           <div><span>SUJEITO REGISTRADO</span><strong>{sheet.identity.name || "Sem nome"}</strong><small>{sheet.identity.office} · {sheet.identity.origin}</small></div>
         </div>
@@ -917,12 +948,25 @@ export default function Home() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="workspace-tabs">
         <TabsList variant="line" className="workspace-nav">
-          {tabItems.map(([value, , label, Icon]) => <TabsTrigger key={value} value={value} className="nav-tab"><Icon />{label}</TabsTrigger>)}
+          {tabItems.map(([value, index, label, Icon]) => <TabsTrigger key={value} value={value} className="nav-tab"><span>{index}</span><Icon /><b>{label}</b></TabsTrigger>)}
         </TabsList>
 
         <TabsContent value="identidade" className="workspace-panel">
           <SectionHeading eyebrow="01 / REGISTRO" title="Identidade e motivo" description="A ficha mede capacidade; estas respostas explicam por que ela importa." />
-          <div className="two-column identity-layout">
+          <div className="identity-layout">
+            <section className="panel portrait-panel">
+              <div className="portrait-rank"><span>NÍVEL</span><strong>{String(sheet.level).padStart(2, "0")}</strong></div>
+              <div className={`character-portrait ${sheet.identity.portrait ? "has-image" : ""}`} style={sheet.identity.portrait ? { backgroundImage: `url(${sheet.identity.portrait})` } : undefined} role="img" aria-label={sheet.identity.portrait ? `Aparência de ${sheet.identity.name || "personagem"}` : "Nenhuma imagem de personagem selecionada"}>
+                {!sheet.identity.portrait && <div><UserRound /><strong>SEM RETRATO</strong><small>PNG, JPG ou WEBP</small></div>}
+              </div>
+              <div className="portrait-caption"><span>REGISTRO VISUAL</span><strong>{sheet.identity.name || "SUJEITO NÃO IDENTIFICADO"}</strong></div>
+              <div className="portrait-actions">
+                <Button onClick={() => portraitRef.current?.click()}><Upload /> {sheet.identity.portrait ? "Trocar imagem" : "Adicionar aparência"}</Button>
+                {sheet.identity.portrait && <Button variant="outline" size="icon-sm" aria-label="Remover imagem do personagem" onClick={() => updateIdentity("portrait", "")}><Trash2 /></Button>}
+              </div>
+              <input ref={portraitRef} hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(event) => { importPortrait(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+              <small className="portrait-storage-note">A imagem é reduzida e salva somente neste dispositivo, junto da ficha.</small>
+            </section>
             <section className="panel">
               <div className="panel-label">DADOS CIVIS</div>
               <div className="form-grid">
@@ -1099,7 +1143,7 @@ export default function Home() {
         <TabsContent value="resumo" className="workspace-panel print-sheet">
           <SectionHeading eyebrow="11 / ARQUIVO FINAL" title={sheet.identity.name || "Personagem sem nome"} description={`${sheet.identity.office} · ${sheet.identity.origin} · Nível ${sheet.level}`} />
           <div className="summary-actions"><Button onClick={() => window.print()}><Printer /> Imprimir / salvar PDF</Button><Button variant="outline" onClick={exportSheet}><Download /> Exportar JSON</Button></div>
-          <section className="summary-hero"><div><span>CONCEITO</span><p>{sheet.identity.concept || "Não registrado."}</p></div><div className="summary-vitals"><StatCard label="Vida" value={`${sheet.resources.life}/${maxLife}`} /><StatCard label="Sanidade" value={`${sheet.resources.sanity}/${maxSanity}`} detail={sanityState} /><StatCard label="Postura" value={`${sheet.resources.posture}/${maxPosture}`} /><StatCard label="Grau" value={sheet.progression.fixerGrade} detail={`${sheet.progression.reputation} reputação`} /></div></section>
+          <section className="summary-hero">{sheet.identity.portrait && <div className="summary-portrait" style={{ backgroundImage: `url(${sheet.identity.portrait})` }} role="img" aria-label={`Aparência de ${sheet.identity.name || "personagem"}`} />}<div className="summary-concept"><span>CONCEITO</span><p>{sheet.identity.concept || "Não registrado."}</p></div><div className="summary-vitals"><StatCard label="Vida" value={`${sheet.resources.life}/${maxLife}`} /><StatCard label="Sanidade" value={`${sheet.resources.sanity}/${maxSanity}`} detail={sanityState} /><StatCard label="Postura" value={`${sheet.resources.posture}/${maxPosture}`} /><StatCard label="Grau" value={sheet.progression.fixerGrade} detail={`${sheet.progression.reputation} reputação`} /></div></section>
           <section className="summary-section"><h3>ATRIBUTOS</h3><div className="summary-attributes">{ATTRIBUTES.map((attribute) => <div key={attribute}><span>{attribute}</span><strong>{totalAttributes[attribute]}</strong><small>{sheet.attributes[attribute]} natural{implantAttributeBonuses[attribute] !== 0 ? ` · ${implantAttributeBonuses[attribute] > 0 ? "+" : ""}${implantAttributeBonuses[attribute]} implante` : ""}</small></div>)}</div></section>
           <div className="summary-columns"><section className="summary-section"><h3>VANTAGENS</h3>{selectedOfficialPerks.filter((perk) => perk.kind === "vantagem").map((perk) => <div className="summary-entry" key={perk.id}><strong>{perk.name}</strong><p>{perk.rule}</p></div>)}{sheet.customPerks.filter((perk) => perk.kind === "vantagem").map((perk) => <div className="summary-entry" key={perk.id}><strong>{perk.name} <small>custom</small></strong><p>{perk.rule}</p></div>)}</section><section className="summary-section"><h3>DESVANTAGENS</h3>{selectedOfficialPerks.filter((perk) => perk.kind === "desvantagem").map((perk) => <div className="summary-entry" key={perk.id}><strong>{perk.name}</strong><p>{perk.rule}</p></div>)}{sheet.customPerks.filter((perk) => perk.kind === "desvantagem").map((perk) => <div className="summary-entry" key={perk.id}><strong>{perk.name} <small>custom</small></strong><p>{perk.rule}</p></div>)}</section></div>
           <section className="summary-section"><h3>TALENTOS</h3><div className="summary-talents">{sheet.selectedTalents.map((id) => ATTRIBUTE_TALENTS.find((talent) => talent.id === id)).filter(Boolean).map((talent) => talent && <div key={talent.id}><span>{talent.attribute} · Nível {talent.level}</span><strong>{talent.name}</strong><p>{talent.effect}</p></div>)}</div></section>
@@ -1112,7 +1156,7 @@ export default function Home() {
           {warnings.length > 0 && <section className="summary-section summary-warnings"><h3>PENDÊNCIAS</h3>{warnings.map((warning, index) => <p key={index}>• {warning}</p>)}</section>}
         </TabsContent>
       </Tabs>
-      <footer className="app-footer"><span>DOCUMENTO DE USO INTERNO</span><i>TABLETOP CORP. // ARQUIVO LOCAL · ARTE: PROJECT MOON</i><span>V.02</span></footer>
+      <footer className="app-footer"><span>DOCUMENTO DE USO INTERNO</span><i>TABLETOP CORP. // ARQUIVO LOCAL · INTERFACE INSPIRADA NA PROJECT MOON</i><span>V.02</span></footer>
     </main>
   );
 }
